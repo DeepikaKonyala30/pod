@@ -1,0 +1,87 @@
+# =============================================================================
+# PodMind — Prometheus Helm Values
+# Used with: helm install prometheus prometheus-community/kube-prometheus-stack
+# =============================================================================
+# These values configure the kube-prometheus-stack to:
+#   1. Scrape all pods/containers at 5-second intervals
+#   2. Enable kube-state-metrics for pod metadata
+#   3. Retain 24h of metric data
+#   4. Minimize resource usage for single-node deployment
+# =============================================================================
+
+# -- Global Prometheus configuration
+prometheus:
+  prometheusSpec:
+    # Scrape interval aligned with PodMind collection cadence
+    scrapeInterval: "5s"
+    evaluationInterval: "5s"
+
+    # Retain 24 hours of data (matches PodMind Redis retention)
+    retention: "24h"
+    retentionSize: "5GB"
+
+    # Resource limits for single-node deployment
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+    # Discover all ServiceMonitors across namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+    # Storage for persistence across restarts
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    # Load PodMind custom recording rules
+    additionalRuleFiles:
+      - "/etc/prometheus/rules/podmind-rules.yaml"
+
+# -- kube-state-metrics: exposes K8s object state as Prometheus metrics
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# -- Node Exporter: host-level metrics (CPU, memory, disk, network)
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# -- Grafana: disabled (PodMind replaces Grafana's dashboard functionality)
+grafana:
+  enabled: false
+
+# -- Alertmanager: disabled (PodMind handles its own alerting via agents)
+alertmanager:
+  enabled: false
+
+# -- kubelet monitoring for container-level metrics
+kubelet:
+  enabled: true
+  serviceMonitor:
+    # Scrape cadvisor at 5-second intervals
+    cAdvisorMetricRelabelings:
+      - sourceLabels: [__name__]
+        regex: "container_(cpu|memory|network|fs)_.*"
+        action: keep

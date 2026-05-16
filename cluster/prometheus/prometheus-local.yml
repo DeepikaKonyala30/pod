@@ -1,0 +1,21 @@
+# =============================================================================
+# Prometheus Local Configuration (for docker-compose development only)
+# In production, Prometheus runs inside the K8s cluster via Helm chart.
+# =============================================================================
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Scrape PodMind API metrics (self-monitoring)
+  - job_name: "podmind-api"
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: "podmind-api"
+
+  # Scrape Prometheus itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

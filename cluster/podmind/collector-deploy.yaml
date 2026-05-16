@@ -1,0 +1,122 @@
+# =============================================================================
+# PodMind — Collector Deployment
+# The collector runs as a Deployment with a ServiceAccount that has read access
+# to all pods, PVCs, events, and logs across all namespaces.
+# =============================================================================
+
+# -- ServiceAccount for K8s API access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: podmind-collector
+  namespace: podmind
+  labels:
+    app: podmind-collector
+    app.kubernetes.io/part-of: podmind
+
+---
+# -- ClusterRole: read-only access to pods, PVCs, events, logs, metrics
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: podmind-collector-role
+  labels:
+    app: podmind-collector
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - events
+      - persistentvolumeclaims
+      - persistentvolumes
+      - nodes
+      - services
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - pods
+      - nodes
+    verbs: ["get", "list"]
+
+---
+# -- ClusterRoleBinding: bind ServiceAccount to ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: podmind-collector-binding
+subjects:
+  - kind: ServiceAccount
+    name: podmind-collector
+    namespace: podmind
+roleRef:
+  kind: ClusterRole
+  name: podmind-collector-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# -- Collector Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podmind-collector
+  namespace: podmind
+  labels:
+    app: podmind-collector
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: podmind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podmind-collector
+  template:
+    metadata:
+      labels:
+        app: podmind-collector
+    spec:
+      serviceAccountName: podmind-collector
+      containers:
+        - name: collector
+          image: podmind/collector:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: K8S_IN_CLUSTER
+              value: "true"
+            - name: REDIS_URL
+              value: "redis://podmind-redis.podmind.svc.cluster.local:6379/0"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: COLLECTION_INTERVAL_FAST
+              value: "5"
+            - name: COLLECTION_INTERVAL_MEDIUM
+              value: "10"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10

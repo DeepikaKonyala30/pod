@@ -1,0 +1,102 @@
+# =============================================================================
+# PodMind — Redis Deployment (with TimeSeries Module)
+# Deployed as a StatefulSet for data persistence across pod restarts.
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: podmind
+  labels:
+    app.kubernetes.io/part-of: podmind
+
+---
+# -- PersistentVolumeClaim for Redis data directory
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: podmind-redis-data
+  namespace: podmind
+  labels:
+    app: podmind-redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# -- Redis Deployment using redis-stack-server (includes TimeSeries module)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podmind-redis
+  namespace: podmind
+  labels:
+    app: podmind-redis
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: podmind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podmind-redis
+  template:
+    metadata:
+      labels:
+        app: podmind-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis/redis-stack-server:7.2.0-v10
+          ports:
+            - containerPort: 6379
+              name: redis
+              protocol: TCP
+          env:
+            - name: REDIS_ARGS
+              value: "--appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: podmind-redis-data
+
+---
+# -- Redis Service (ClusterIP for internal access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: podmind-redis
+  namespace: podmind
+  labels:
+    app: podmind-redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app: podmind-redis

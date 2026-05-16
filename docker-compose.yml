@@ -1,0 +1,82 @@
+# =============================================================================
+# PodMind — Docker Compose (Local Development)
+# Provides Redis (with TimeSeries module) and optional Prometheus for local dev.
+# The collector, agents, and API run on the host for rapid iteration.
+# =============================================================================
+#
+# Usage:
+#   docker-compose up -d          # Start infrastructure
+#   docker-compose down           # Stop and remove containers
+#   docker-compose logs -f redis  # Tail Redis logs
+#
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis with TimeSeries Module
+  # Used for: metric storage (TS.*), agent event bus (Streams), insight cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis/redis-stack-server:7.2.0-v10
+    container_name: podmind-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # RedisInsight (Optional) — Web-based Redis GUI for debugging TimeSeries
+  # Access at http://localhost:8001
+  # ---------------------------------------------------------------------------
+  redis-insight:
+    image: redislabs/redisinsight:2.46
+    container_name: podmind-redis-insight
+    ports:
+      - "8001:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - debug
+
+  # ---------------------------------------------------------------------------
+  # Prometheus (for local development without a K8s cluster)
+  # Only needed if you're not using an existing Prometheus instance.
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    container_name: podmind-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./cluster/prometheus/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=24h"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local

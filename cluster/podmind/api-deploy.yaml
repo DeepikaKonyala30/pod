@@ -1,0 +1,106 @@
+# =============================================================================
+# PodMind — API Server Deployment
+# FastAPI backend serving REST API, WebSocket, and running the agent scheduler.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podmind-api
+  namespace: podmind
+  labels:
+    app: podmind-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: podmind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podmind-api
+  template:
+    metadata:
+      labels:
+        app: podmind-api
+    spec:
+      serviceAccountName: podmind-collector  # Reuse collector SA for K8s read access
+      containers:
+        - name: api
+          image: podmind/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: K8S_IN_CLUSTER
+              value: "true"
+            - name: REDIS_URL
+              value: "redis://podmind-redis.podmind.svc.cluster.local:6379/0"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: API_HOST
+              value: "0.0.0.0"
+            - name: API_PORT
+              value: "8000"
+            - name: PODMIND_LLM_TIER
+              value: "3"  # Default to Ollama for in-cluster
+            - name: OLLAMA_HOST
+              value: "http://ollama.podmind.svc.cluster.local:11434"
+            - name: ANALYSIS_INTERVAL
+              value: "30"
+            - name: WS_PUSH_INTERVAL
+              value: "5"
+            - name: LOG_LEVEL
+              value: "INFO"
+            # LLM API keys should be provided via Kubernetes Secrets in production
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: podmind-llm-keys
+                  key: anthropic-api-key
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: podmind-llm-keys
+                  key: openai-api-key
+                  optional: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+# -- API Service (NodePort for external access on single-node cluster)
+apiVersion: v1
+kind: Service
+metadata:
+  name: podmind-api
+  namespace: podmind
+  labels:
+    app: podmind-api
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30800
+      protocol: TCP
+      name: http
+  selector:
+    app: podmind-api

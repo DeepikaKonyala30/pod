@@ -1,0 +1,91 @@
+# =============================================================================
+# PodMind Demo Workload — Memory Leak Simulator
+# Deploys a Python pod that allocates memory steadily, simulating a leak.
+# Used to trigger PodMind's Memory Agent leak detection and OOM forecasting.
+# =============================================================================
+# Behavior:
+#   - Allocates ~10MB every 30 seconds
+#   - Limit set to 256Mi → will approach OOM in ~12 minutes
+#   - Memory Agent should detect: positive slope > 0.5%/min, OOM risk flag
+#   - Forecaster should predict OOM kill time
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memory-leak-script
+  namespace: default
+  labels:
+    app: memory-leak-demo
+data:
+  leak.py: |
+    """
+    Memory Leak Simulator for PodMind Demo.
+    Allocates memory in a controlled, linear fashion to trigger
+    PodMind's Memory Agent leak detection (linear regression slope > 0.5%/min).
+    """
+    import time
+    import sys
+    import os
+
+    CHUNK_SIZE_MB = int(os.environ.get("CHUNK_SIZE_MB", "10"))
+    INTERVAL_SEC = int(os.environ.get("INTERVAL_SEC", "30"))
+
+    print(f"[memory-leak] Starting: {CHUNK_SIZE_MB}MB every {INTERVAL_SEC}s", flush=True)
+
+    leaked_data = []
+    total_mb = 0
+
+    while True:
+        # Allocate a chunk of memory that won't be garbage collected
+        chunk = bytearray(CHUNK_SIZE_MB * 1024 * 1024)
+        leaked_data.append(chunk)
+        total_mb += CHUNK_SIZE_MB
+        print(f"[memory-leak] Allocated {total_mb}MB total ({len(leaked_data)} chunks)", flush=True)
+        time.sleep(INTERVAL_SEC)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-leak-demo
+  namespace: default
+  labels:
+    app: memory-leak-demo
+    podmind.io/demo: "true"
+    podmind.io/workload-type: memory-leak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-leak-demo
+  template:
+    metadata:
+      labels:
+        app: memory-leak-demo
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: leaker
+          image: python:3.11-slim
+          command: ["python", "/app/leak.py"]
+          env:
+            - name: CHUNK_SIZE_MB
+              value: "10"
+            - name: INTERVAL_SEC
+              value: "30"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi          # OOM kill at 256Mi → ~12 min
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: memory-leak-script

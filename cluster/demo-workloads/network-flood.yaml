@@ -1,0 +1,124 @@
+# =============================================================================
+# PodMind Demo Workload — Network Flood Generator
+# Deploys a pod that generates high packet rates to trigger Network Agent detection.
+# =============================================================================
+# Behavior:
+#   - Sends UDP packets at high rate to a target service
+#   - Also runs an HTTP endpoint that logs connection errors
+#   - Network Agent should detect: chatty pod (>10k pkt/sec), network saturation
+#   - Log Agent should detect: connection error patterns
+# =============================================================================
+
+# -- Target service: receives the network flood
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-sink
+  namespace: default
+  labels:
+    app: network-sink
+    podmind.io/demo: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9999
+      targetPort: 9999
+      protocol: UDP
+      name: udp
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: network-sink
+
+---
+# -- Network Sink: receives and discards packets
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-sink
+  namespace: default
+  labels:
+    app: network-sink
+    podmind.io/demo: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-sink
+  template:
+    metadata:
+      labels:
+        app: network-sink
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: sink
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[network-sink] Listening on UDP 9999 and TCP 8080"
+              # Simple UDP listener using nc
+              nc -luk -p 9999 > /dev/null 2>&1 &
+              # Simple HTTP listener
+              while true; do
+                echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK" | nc -l -p 8080 > /dev/null 2>&1
+              done
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+---
+# -- Network Flood Generator: sends high volume of packets
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-flood-demo
+  namespace: default
+  labels:
+    app: network-flood-demo
+    podmind.io/demo: "true"
+    podmind.io/workload-type: network-heavy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: network-flood-demo
+  template:
+    metadata:
+      labels:
+        app: network-flood-demo
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: flooder
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[network-flood] Starting UDP flood to network-sink:9999"
+              while true; do
+                # Generate rapid UDP packets
+                for i in $(seq 1 1000); do
+                  echo "PODMIND_FLOOD_PACKET_${i}_$(date +%s)" | nc -u -w0 network-sink 9999 2>/dev/null &
+                done
+                wait
+                # Also make HTTP requests that will sometimes fail (connection pool exhaustion)
+                for i in $(seq 1 50); do
+                  wget -q -O /dev/null http://network-sink:8080/ 2>&1 || echo "ERROR: connection refused to network-sink:8080" >&2
+                done
+                sleep 1
+              done
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi

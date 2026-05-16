@@ -1,0 +1,19 @@
+{
+  "name": "podmind",
+  "version": "1.0.0",
+  "description": "PodMind — AI-Driven Real-Time Pod Resource Discovery & Dependency Mapping",
+  "private": true,
+  "scripts": {
+    "dev": "cd dashboard && npm run dev",
+    "build": "cd dashboard && npm run build",
+    "test": "pytest tests/ -v"
+  },
+  "keywords": [
+    "kubernetes",
+    "observability",
+    "ai-agents",
+    "anomaly-detection",
+    "dependency-mapping"
+  ],
+  "license": "MIT"
+}

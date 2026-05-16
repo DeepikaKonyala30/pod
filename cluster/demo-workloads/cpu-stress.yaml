@@ -1,0 +1,51 @@
+# =============================================================================
+# PodMind Demo Workload — CPU Stress
+# Deploys a pod that generates sustained CPU load using stress-ng.
+# Used to trigger PodMind's CPU Agent anomaly detection.
+# =============================================================================
+# Behavior:
+#   - Runs 2 CPU workers at ~80% load
+#   - Request: 100m, Limit: 500m → will show high utilization + throttling
+#   - CPU Agent should detect: anomalous CV, high p99, throttle_ratio > 15%
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-stress-demo
+  namespace: default
+  labels:
+    app: cpu-stress-demo
+    podmind.io/demo: "true"
+    podmind.io/workload-type: cpu-intensive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cpu-stress-demo
+  template:
+    metadata:
+      labels:
+        app: cpu-stress-demo
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: stress
+          image: alexeiled/stress-ng:latest
+          command:
+            - "stress-ng"
+          args:
+            - "--cpu"
+            - "2"                    # 2 CPU workers
+            - "--cpu-load"
+            - "80"                   # 80% load per worker
+            - "--timeout"
+            - "0"                    # Run indefinitely
+            - "--metrics-brief"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m              # Will throttle → triggers CPU agent
+              memory: 128Mi

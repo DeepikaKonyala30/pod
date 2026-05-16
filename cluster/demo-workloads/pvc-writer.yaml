@@ -1,0 +1,134 @@
+# =============================================================================
+# PodMind Demo Workload — PVC Sequential Writer
+# Deploys a pod that writes large files to a shared PVC, saturating I/O.
+# Used to trigger PodMind's Storage Agent PVC saturation and restart correlation.
+# =============================================================================
+# Behavior:
+#   - Creates a shared PVC (ReadWriteOnce)
+#   - Writes 100MB files sequentially using dd
+#   - A "victim" database pod shares the PVC and experiences I/O starvation
+#   - Storage Agent should detect: PVC saturation > 0.7, causal hypothesis linking
+#     pvc-writer restarts to db-victim pod degradation
+# =============================================================================
+
+# -- Shared PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data-pvc
+  namespace: default
+  labels:
+    app: pvc-writer-demo
+    podmind.io/demo: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# -- PVC Writer: saturates storage I/O with sequential writes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pvc-writer-demo
+  namespace: default
+  labels:
+    app: pvc-writer-demo
+    podmind.io/demo: "true"
+    podmind.io/workload-type: storage-heavy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pvc-writer-demo
+  template:
+    metadata:
+      labels:
+        app: pvc-writer-demo
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: writer
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[pvc-writer] Starting sequential write workload"
+              COUNTER=0
+              while true; do
+                FILE="/data/bulk_${COUNTER}.dat"
+                echo "[pvc-writer] Writing 100MB to ${FILE}"
+                dd if=/dev/urandom of="${FILE}" bs=1M count=100 2>/dev/null
+                sync
+                echo "[pvc-writer] Write complete, cleaning up"
+                rm -f "${FILE}"
+                COUNTER=$((COUNTER + 1))
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+---
+# -- DB Victim: shares the PVC, experiences I/O starvation from the writer
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-victim-demo
+  namespace: default
+  labels:
+    app: db-victim-demo
+    podmind.io/demo: "true"
+    podmind.io/workload-type: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-victim-demo
+  template:
+    metadata:
+      labels:
+        app: db-victim-demo
+        podmind.io/demo: "true"
+    spec:
+      containers:
+        - name: db-sim
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[db-victim] Starting simulated DB reads"
+              while true; do
+                # Simulate database read workload on shared storage
+                ls -la /data/ > /dev/null 2>&1
+                cat /data/*.dat > /dev/null 2>&1 || true
+                sleep 1
+              done
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

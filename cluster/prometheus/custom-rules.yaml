@@ -1,0 +1,143 @@
+# =============================================================================
+# PodMind — Custom Prometheus Recording Rules
+# Pre-compute expensive metrics so agents can query efficiently.
+# Deploy via: kubectl apply -f custom-rules.yaml
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: podmind-recording-rules
+  namespace: monitoring
+  labels:
+    app: podmind
+    prometheus: kube-prometheus
+spec:
+  groups:
+    # -------------------------------------------------------------------------
+    # CPU Derived Metrics
+    # -------------------------------------------------------------------------
+    - name: podmind.cpu
+      interval: 5s
+      rules:
+        # Per-pod CPU usage rate (cores) — 1-minute rate
+        - record: podmind:pod_cpu_usage_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[1m])
+            )
+
+        # Per-pod CPU usage as percentage of request
+        - record: podmind:pod_cpu_usage_pct_of_request
+          expr: |
+            podmind:pod_cpu_usage_rate
+            /
+            on(namespace, pod) group_left()
+            sum by (namespace, pod) (
+              kube_pod_container_resource_requests{resource="cpu"}
+            ) * 100
+
+        # Per-pod CPU throttle ratio
+        - record: podmind:pod_cpu_throttle_ratio
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_cpu_cfs_throttled_seconds_total{container!=""}[1m])
+            )
+            /
+            sum by (namespace, pod) (
+              rate(container_cpu_cfs_periods_total{container!=""}[1m])
+            )
+
+    # -------------------------------------------------------------------------
+    # Memory Derived Metrics
+    # -------------------------------------------------------------------------
+    - name: podmind.memory
+      interval: 5s
+      rules:
+        # Per-pod RSS memory usage as percentage of limit
+        - record: podmind:pod_memory_usage_pct_of_limit
+          expr: |
+            sum by (namespace, pod) (
+              container_memory_rss{container!="", container!="POD"}
+            )
+            /
+            on(namespace, pod) group_left()
+            sum by (namespace, pod) (
+              kube_pod_container_resource_limits{resource="memory"}
+            ) * 100
+
+        # Per-pod working set bytes
+        - record: podmind:pod_memory_working_set
+          expr: |
+            sum by (namespace, pod) (
+              container_memory_working_set_bytes{container!="", container!="POD"}
+            )
+
+        # Per-pod cache memory as percentage of RSS
+        - record: podmind:pod_memory_cache_ratio
+          expr: |
+            sum by (namespace, pod) (
+              container_memory_cache{container!=""}
+            )
+            /
+            sum by (namespace, pod) (
+              container_memory_rss{container!=""}
+            )
+
+    # -------------------------------------------------------------------------
+    # Network Derived Metrics
+    # -------------------------------------------------------------------------
+    - name: podmind.network
+      interval: 10s
+      rules:
+        # Per-pod network receive rate (bytes/sec)
+        - record: podmind:pod_network_rx_bytes_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_network_receive_bytes_total{interface!="lo"}[1m])
+            )
+
+        # Per-pod network transmit rate (bytes/sec)
+        - record: podmind:pod_network_tx_bytes_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_network_transmit_bytes_total{interface!="lo"}[1m])
+            )
+
+        # Per-pod packet rate (packets/sec)
+        - record: podmind:pod_network_rx_packets_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_network_receive_packets_total{interface!="lo"}[1m])
+            )
+
+    # -------------------------------------------------------------------------
+    # Storage / Filesystem Derived Metrics
+    # -------------------------------------------------------------------------
+    - name: podmind.storage
+      interval: 10s
+      rules:
+        # Per-pod filesystem usage percentage
+        - record: podmind:pod_fs_usage_pct
+          expr: |
+            sum by (namespace, pod) (
+              container_fs_usage_bytes{container!=""}
+            )
+            /
+            sum by (namespace, pod) (
+              container_fs_limit_bytes{container!=""}
+            ) * 100
+
+        # Per-pod filesystem write rate (bytes/sec)
+        - record: podmind:pod_fs_write_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_fs_writes_bytes_total{container!=""}[1m])
+            )
+
+        # Per-pod filesystem read rate (bytes/sec)
+        - record: podmind:pod_fs_read_rate
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_fs_reads_bytes_total{container!=""}[1m])
+            )
