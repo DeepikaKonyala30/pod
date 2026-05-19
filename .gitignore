@@ -57,3 +57,8 @@ dump.rdb
 # Logs
 *.log
 logs/
+
+# Local AI/cache artifacts
+.module_analysis_cache/
+audio_analysis_cache/
+ModuleAnalysisCache

@@ -155,6 +155,17 @@ class PrometheusClient:
     # Pre-Built Metric Queries (PodMind Recording Rules)
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _pod_join_expr(raw_metric: str) -> str:
+        """Join cAdvisor metrics keyed by `id` to kube-state-metrics pod labels."""
+        return (
+            f'sum by (namespace, pod) ('
+            f'  {raw_metric} '
+            f'* on (id) group_left(namespace, pod) '
+            f'label_replace(kube_pod_container_info, "id", "/docker/$1", "container_id", "docker://(.*)")'
+            f')'
+        )
+
     async def get_cpu_usage_all_pods(
         self, window_minutes: int = 10
     ) -> dict[str, pd.DataFrame]:
@@ -178,8 +189,7 @@ class PrometheusClient:
             result = await self.query_range(
                 promql=(
                     'sum by (namespace, pod) ('
-                    '  rate(container_cpu_usage_seconds_total'
-                    '  {container!="", container!="POD"}[1m])'
+                    'rate(container_cpu_usage_seconds_total{job="kubelet", metrics_path="/metrics/cadvisor", pod!=""}[1m])'
                     ')'
                 ),
                 start=start,
@@ -234,7 +244,7 @@ class PrometheusClient:
         result = await self.query_range(
             promql=(
                 'sum by (namespace, pod) ('
-                '  container_memory_rss{container!="", container!="POD"}'
+                'container_memory_working_set_bytes{job="kubelet", metrics_path="/metrics/cadvisor", pod!=""}'
                 ')'
             ),
             start=start,
@@ -312,7 +322,7 @@ class PrometheusClient:
             result = await self.query_range(
                 promql=(
                     'sum by (namespace, pod) ('
-                    '  rate(container_network_receive_bytes_total{interface!="lo"}[1m])'
+                    'rate(container_network_receive_bytes_total{job="kubelet", metrics_path="/metrics/cadvisor", pod!="", interface!="lo"}[1m])'
                     ')'
                 ),
                 start=start,
@@ -340,7 +350,7 @@ class PrometheusClient:
             result = await self.query_range(
                 promql=(
                     'sum by (namespace, pod) ('
-                    '  rate(container_network_transmit_bytes_total{interface!="lo"}[1m])'
+                    'rate(container_network_transmit_bytes_total{job="kubelet", metrics_path="/metrics/cadvisor", pod!="", interface!="lo"}[1m])'
                     ')'
                 ),
                 start=start,
@@ -360,7 +370,7 @@ class PrometheusClient:
         return await self.query_range(
             promql=(
                 'sum by (namespace, pod) ('
-                '  rate(container_network_receive_packets_total{interface!="lo"}[1m])'
+                'rate(container_network_receive_packets_total{job="kubelet", metrics_path="/metrics/cadvisor", pod!="", interface!="lo"}[1m])'
                 ')'
             ),
             start=start,
@@ -378,7 +388,7 @@ class PrometheusClient:
         return await self.query_range(
             promql=(
                 'sum by (namespace, pod) ('
-                '  rate(container_fs_writes_bytes_total{container!=""}[1m])'
+                'rate(container_fs_writes_bytes_total{job="kubelet", metrics_path="/metrics/cadvisor", pod!=""}[1m])'
                 ')'
             ),
             start=start,

@@ -47,13 +47,33 @@ class RedisReader:
 
     async def get_pod_metadata(self) -> list[dict[str, Any]]:
         """Get all known pods."""
+        # Prefer the aggregated key if present, but also support the per-pod
+        # hash layout written by RedisWriter.write_pod_metadata().
         data = await self._redis.get("meta:pods")
-        return json.loads(data) if data else []
+        if data:
+            return json.loads(data)
+
+        pods: list[dict[str, Any]] = []
+        async for key in self._redis.scan_iter(match="meta:*:*"):
+            if key == "meta:pods" or key == "meta:pvc_mapping":
+                continue
+            record = await self._redis.hgetall(key)
+            if not record:
+                continue
+            pods.append(record)
+
+        return pods
 
     async def get_pod_metadata_map(self) -> dict[str, dict[str, Any]]:
         """Get pod metadata mapped by 'namespace:pod' key."""
         pods = await self.get_pod_metadata()
-        return {f"{p['namespace']}:{p['name']}": p for p in pods}
+        result = {}
+        for pod in pods:
+            namespace = pod.get("namespace", "default")
+            name = pod.get("name", "")
+            if namespace and name:
+                result[f"{namespace}:{name}"] = pod
+        return result
 
     async def get_pvc_mapping(self) -> dict[str, list[str]]:
         """Get mapping of namespace:pod -> list of PVC names."""
@@ -125,59 +145,41 @@ class RedisReader:
 
     async def get_network_data(self, window_minutes: int = 10) -> dict[str, pd.DataFrame]:
         """Fetch network rx/tx packets and bytes."""
+        # For robustness we fetch RX and TX rate series and merge them per pod
         rx_keys = await self._redis.keys("net:rx:*")
         tx_keys = await self._redis.keys("net:tx:*")
-        
-        # We need to combine RX and TX into single DataFrames per pod
+
         window_ms = window_minutes * 60000
-        rx_dfs = await self._get_ts_range(rx_keys, window_ms, ["rx_packets_per_sec"])
-        tx_dfs = await self._get_ts_range(tx_keys, window_ms, ["tx_packets_per_sec"])
 
-        # Fetch bytes (we use the same keys but different series in Redis... wait, 
-        # in redis_writer we actually wrote them to separate keys:
-        # net:rx:pkts:, net:rx:bytes:, net:tx:pkts:, net:tx:bytes:
-        rx_pkt_keys = await self._redis.keys("net:rx:pkts:*")
-        rx_byte_keys = await self._redis.keys("net:rx:bytes:*")
-        tx_pkt_keys = await self._redis.keys("net:tx:pkts:*")
-        tx_byte_keys = await self._redis.keys("net:tx:bytes:*")
+        # Fetch raw series; note: _get_ts_range currently returns dict keys like
+        # 'rx:namespace:pod' because it splits on the first ':'. We'll normalize below.
+        rx_raw = await self._get_ts_range(rx_keys, window_ms, ["rx_rate"]) if rx_keys else {}
+        tx_raw = await self._get_ts_range(tx_keys, window_ms, ["tx_rate"]) if tx_keys else {}
 
-        rx_pkts = await self._get_ts_range(rx_pkt_keys, window_ms, ["rx_packets_per_sec"])
-        rx_bytes = await self._get_ts_range(rx_byte_keys, window_ms, ["rx_bytes_per_sec"])
-        tx_pkts = await self._get_ts_range(tx_pkt_keys, window_ms, ["tx_packets_per_sec"])
-        tx_bytes = await self._get_ts_range(tx_byte_keys, window_ms, ["tx_bytes_per_sec"])
+        def normalize_key(k: str, prefix: str) -> str:
+            # Convert 'rx:namespace:pod' -> 'namespace:pod'
+            if k.startswith(prefix + ":"):
+                return k[len(prefix) + 1 :]
+            return k
 
-        # Combine them
-        combined = {}
-        all_pod_keys = set(rx_pkts.keys()) | set(tx_pkts.keys())
-        
-        for k in all_pod_keys:
-            # Drop the 'net:rx:pkts:' prefix logic handled in _get_ts_range gives us 'rx:pkts:ns:pod'
-            # Let's clean up the keys first
-            pass
+        rx = {normalize_key(k, "rx"): v for k, v in rx_raw.items()}
+        tx = {normalize_key(k, "tx"): v for k, v in tx_raw.items()}
 
-        # Since normalizer handles the dict structure, we just need to pass dfs.
-        # Let's simplify by returning a single DF per pod with rx/tx columns
-        
-        # Clean keys
-        def clean_key(d: dict, prefix: str):
-            return {k.replace(prefix, ""): v for k, v in d.items()}
-
-        r_p = clean_key(rx_pkts, "rx:pkts:")
-        r_b = clean_key(rx_bytes, "rx:bytes:")
-        t_p = clean_key(tx_pkts, "tx:pkts:")
-        t_b = clean_key(tx_bytes, "tx:bytes:")
-
-        all_pods = set(r_p.keys()) | set(r_b.keys()) | set(t_p.keys()) | set(t_b.keys())
-
+        # Merge RX and TX frames per pod (concatenate columns)
+        combined: dict[str, pd.DataFrame] = {}
+        all_pods = set(rx.keys()) | set(tx.keys())
         for pod in all_pods:
-            dfs = []
-            if pod in r_p: dfs.append(r_p[pod])
-            if pod in r_b: dfs.append(r_b[pod])
-            if pod in t_p: dfs.append(t_p[pod])
-            if pod in t_b: dfs.append(t_b[pod])
-            
-            if dfs:
-                combined[pod] = pd.concat(dfs, axis=1)
+            parts = []
+            if pod in rx:
+                parts.append(rx[pod])
+            if pod in tx:
+                parts.append(tx[pod])
+            if parts:
+                try:
+                    combined[pod] = pd.concat(parts, axis=1)
+                except Exception:
+                    # If concat fails, fall back to first available DF
+                    combined[pod] = parts[0]
 
         return combined
 

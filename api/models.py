@@ -23,6 +23,8 @@ class SystemHealth(BaseModel):
     status: str
     redis_connected: bool
     prometheus_connected: bool
+    kubernetes_connected: bool = False
+    real_data_mode: bool = False
     llm_tiers_available: list[str]
 
 

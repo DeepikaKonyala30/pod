@@ -62,11 +62,11 @@ class MetricNormalizer:
 
             if limit > 0:
                 df_resampled["cpu_usage_pct"] = (
-                    df_resampled["value"] / limit
-                ).clip(0.0, 2.0)  # Allow >100% (bursting above limit)
+                    df_resampled["value"] / limit * 100.0
+                ).clip(0.0, 200.0)
             else:
                 # Pod has no CPU limit — flag it, use raw value
-                df_resampled["cpu_usage_pct"] = df_resampled["value"]
+                df_resampled["cpu_usage_pct"] = (df_resampled["value"] * 100.0).clip(0.0, 100.0)
                 df_resampled["no_limit"] = True
                 logger.debug("Pod %s has no CPU limit; using raw cores", key)
 

@@ -176,6 +176,18 @@ class CollectorService:
                 self._prom.get_cpu_limits_all_pods(),
                 self._prom.get_memory_limits_all_pods(),
             )
+            if not cpu_limits:
+                cpu_limits = {
+                    f"{pod['namespace']}:{pod['name']}": float(pod.get("cpu_limit") or 0.0)
+                    for pod in pods
+                    if float(pod.get("cpu_limit") or 0.0) > 0
+                }
+            if not mem_limits:
+                mem_limits = {
+                    f"{pod['namespace']}:{pod['name']}": float(pod.get("mem_limit") or 0.0)
+                    for pod in pods
+                    if float(pod.get("mem_limit") or 0.0) > 0
+                }
             self._cpu_limits = cpu_limits
             self._mem_limits = mem_limits
 

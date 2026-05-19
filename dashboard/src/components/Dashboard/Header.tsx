@@ -27,7 +27,7 @@ export function Header({ health }: { health: SystemHealth | null }) {
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
         <StatusPill icon={<Server size={14} />} label="API" active={true} />
         <StatusPill icon={<Database size={14} />} label="Redis" active={health?.redis_connected ?? false} />
-        <StatusPill icon={<Cpu size={14} />} label="LLM" active={health?.llm_tiers_available?.length > 0} />
+        <StatusPill icon={<Cpu size={14} />} label="LLM" active={!!health?.llm_tiers_available?.length} />
         
         <div style={{ width: '1px', height: '24px', background: 'var(--border-light)', margin: '0 8px' }} />
         

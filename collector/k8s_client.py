@@ -19,11 +19,11 @@ from typing import Any, Optional
 from kubernetes import client, config
 from kubernetes.client import (
     CoreV1Api,
-    V1Event,
     V1Namespace,
     V1PersistentVolumeClaim,
     V1Pod,
 )
+from kubernetes.client.models import CoreV1Event
 from kubernetes.client.rest import ApiException
 
 logger = logging.getLogger("podmind.collector.k8s")
@@ -246,11 +246,11 @@ class K8sClient:
         logger.debug("Found %d events in last %d minutes", len(events), minutes)
         return events
 
-    def _get_event_time(self, event: V1Event) -> Optional[datetime]:
+    def _get_event_time(self, event: CoreV1Event) -> Optional[datetime]:
         """Get the most recent timestamp from an event."""
         return event.last_timestamp or event.event_time or event.first_timestamp
 
-    def _extract_event_info(self, event: V1Event, event_time: datetime) -> dict[str, Any]:
+    def _extract_event_info(self, event: CoreV1Event, event_time: datetime) -> dict[str, Any]:
         """Extract structured event information."""
         return {
             "type": event.type,  # Normal, Warning
