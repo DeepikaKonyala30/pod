@@ -1,14 +1,5 @@
 import type { Insight } from '../../types';
-import { Clock, AlertTriangle, Activity } from 'lucide-react';
-
-interface AnomalyEvent {
-  pod: string;
-  namespace: string;
-  severity: string;
-  description: string;
-  confidence: number;
-  resource: string;
-}
+import { AlertTriangle, Activity } from 'lucide-react';
 
 export function AnomalyTimeline({ insight }: { insight: Insight | null }) {
   if (!insight || insight.root_causes.length === 0) {

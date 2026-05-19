@@ -37,13 +37,17 @@ class PodMindSettings(BaseSettings):
     # LLM Configuration
     # -------------------------------------------------------------------------
     podmind_llm_tier: int = Field(
-        default=1,
+        default=2,
         ge=1,
         le=3,
-        description="LLM tier: 1=Claude (best), 2=GPT-4o (cost-opt), 3=Ollama (offline)",
+        description="LLM tier: 1=Claude (best), 2=Groq/Gemini/GPT-4o (free/cheap), 3=Ollama (offline)",
     )
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic Claude API key")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
+    groq_api_key: Optional[str] = Field(default=None, description="Groq API key (free tier at console.groq.com)")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", description="Groq model name")
+    gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key (free at aistudio.google.com)")
+    gemini_model: str = Field(default="gemini-1.5-flash", description="Gemini model name")
     ollama_host: str = Field(default="http://localhost:11434", description="Ollama server URL")
     ollama_model: str = Field(default="llama3:8b", description="Ollama model name")
 

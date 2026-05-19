@@ -1,5 +1,5 @@
 # =============================================================================
-# PodMind — Python Dependencies
+# PodMind — Python Dependencies (Python 3.11 compatible)
 # AI-Driven Real-Time Pod Resource Discovery & Dependency Mapping
 # =============================================================================
 
@@ -21,52 +21,53 @@ starlette==0.36.3                   # ASGI toolkit (FastAPI dependency)
 # -----------------------------------------------------------------------------
 # Task Scheduling
 # -----------------------------------------------------------------------------
-apscheduler==3.10.4                 # Background job scheduler (5s/30s intervals)
+apscheduler==3.10.4                 # Background job scheduler
 
 # -----------------------------------------------------------------------------
 # AI Agent Framework
 # -----------------------------------------------------------------------------
-langgraph==0.1.19                   # DAG-based agent orchestration
-langchain>=0.2.0,<0.3.0             # Allows pip to grab 0.2.17 (the true end of the 0.2 line)
-langchain-core>=0.2.22,<0.3.0       # Keeps LangGraph happy with its minimum requirement
+langgraph>=0.2.0,<0.3.0             # DAG-based agent orchestration
+langchain>=0.3.0,<0.4.0             # LangChain core framework
+langchain-core>=0.3.0,<0.4.0       # Core abstractions for LangChain
 
 # -----------------------------------------------------------------------------
 # LLM Providers
 # -----------------------------------------------------------------------------
-anthropic==0.26.0                   # Anthropic Claude API (Tier 1)
-openai==1.30.0                      # OpenAI GPT-4o API (Tier 2)
-ollama==0.2.0                       # Ollama local LLM client (Tier 3)
+anthropic==0.26.0                   # Anthropic Claude API
+openai==1.30.0                      # OpenAI GPT API (also used by Groq)
+google-generativeai>=0.7.0          # Google Gemini API
+ollama==0.2.0                       # Ollama local LLM client
 
 # -----------------------------------------------------------------------------
 # Machine Learning & Statistical Analysis
 # -----------------------------------------------------------------------------
-scikit-learn>=1.5.0                 # Python 3.13 native support
-statsmodels>=0.14.4                  # Updated for modern Python runtimes
-networkx==3.3                       # Graph data structures for dependency mapping
-prophet>=1.1.6                      # Upgraded internal compiler parameters
+scikit-learn>=1.4.0,<1.6.0         # ML algorithms (1.4.x has solid Python 3.11 wheels)
+statsmodels>=0.14.2,<0.15.0        # Statistical tests (Granger causality)
+networkx==3.3                       # Graph data structures
+# prophet removed — complex build on Windows; use neuralprophet or skip for dev
 
 # -----------------------------------------------------------------------------
 # Data Processing
 # -----------------------------------------------------------------------------
-numpy>=1.26.0,<2.0.0
-pandas>=2.2.0
-scipy>=1.13.0
+numpy>=1.26.0,<2.0.0               # Python 3.11 stable: use 1.x for max compatibility
+pandas>=2.1.0,<2.3.0               # 2.1/2.2 well-tested on Python 3.11
+scipy>=1.11.0,<1.14.0              # Compatible with numpy 1.x and Python 3.11
 
 # -----------------------------------------------------------------------------
 # Validation & Templating
 # -----------------------------------------------------------------------------
-pydantic>=2.9.0                     # Resolves 3.13-specific deprecation warnings
-pydantic-settings>=2.5.0
+pydantic>=2.5.0,<2.10.0            # Python 3.11 compatible range
+pydantic-settings>=2.2.0,<2.6.0   # Settings management
 jinja2==3.1.4                       # Prompt template rendering
 
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
-httpx==0.27.0                       # Async HTTP client for kubelet API
+httpx==0.27.0                       # Async HTTP client
 python-dotenv==1.0.1                # .env file loading
-loguru==0.7.2                       # Structured logging with rotation
+loguru==0.7.2                       # Structured logging
 tenacity==8.3.0                     # Retry logic for API calls
-orjson==3.10.3                      # Fast JSON serialization
+orjson>=3.9.0,<3.11.0              # Fast JSON (3.9/3.10 have Python 3.11 wheels)
 
 # -----------------------------------------------------------------------------
 # Testing

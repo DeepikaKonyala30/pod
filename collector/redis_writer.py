@@ -313,27 +313,37 @@ class RedisWriter:
         count = 0
         pipe = self._redis.pipeline()
 
+        def _clean(value: Any) -> str:
+            """Convert Redis hash values to safe strings; Redis hashes cannot store None."""
+            if value is None:
+                return ""
+            if isinstance(value, (dict, list)):
+                return json.dumps(value)
+            return str(value)
+
         for pod in pods:
-            meta_key = f"meta:{pod['namespace']}:{pod['name']}"
+            namespace = _clean(pod.get("namespace")) or "default"
+            name = _clean(pod.get("name"))
+            meta_key = f"meta:{namespace}:{name}"
             # Serialize complex fields to JSON
             metadata = {
-                "name": pod["name"],
-                "namespace": pod["namespace"],
-                "phase": pod.get("phase", "Unknown"),
-                "node_name": pod.get("node_name", ""),
-                "owner": pod.get("owner", ""),
-                "owner_kind": pod.get("owner_kind", ""),
-                "containers": json.dumps(pod.get("containers", [])),
-                "labels": json.dumps(pod.get("labels", {})),
-                "cpu_request": str(pod.get("cpu_request", 0)),
-                "cpu_limit": str(pod.get("cpu_limit", 0)),
-                "mem_request": str(pod.get("mem_request", 0)),
-                "mem_limit": str(pod.get("mem_limit", 0)),
-                "restart_count": str(pod.get("restart_count", 0)),
-                "pvc_names": json.dumps(pod.get("pvc_names", [])),
-                "has_resource_limits": str(pod.get("has_resource_limits", False)),
-                "start_time": pod.get("start_time", ""),
-                "collected_at": pod.get("collected_at", ""),
+                "name": name,
+                "namespace": namespace,
+                "phase": _clean(pod.get("phase", "Unknown")) or "Unknown",
+                "node_name": _clean(pod.get("node_name")),
+                "owner": _clean(pod.get("owner")),
+                "owner_kind": _clean(pod.get("owner_kind")),
+                "containers": _clean(pod.get("containers", [])),
+                "labels": _clean(pod.get("labels", {})),
+                "cpu_request": _clean(pod.get("cpu_request", 0)),
+                "cpu_limit": _clean(pod.get("cpu_limit", 0)),
+                "mem_request": _clean(pod.get("mem_request", 0)),
+                "mem_limit": _clean(pod.get("mem_limit", 0)),
+                "restart_count": _clean(pod.get("restart_count", 0)),
+                "pvc_names": _clean(pod.get("pvc_names", [])),
+                "has_resource_limits": _clean(pod.get("has_resource_limits", False)),
+                "start_time": _clean(pod.get("start_time")),
+                "collected_at": _clean(pod.get("collected_at")),
             }
             pipe.hset(meta_key, mapping=metadata)
             pipe.expire(meta_key, 3600)  # 1 hour TTL (refreshed every 30s)

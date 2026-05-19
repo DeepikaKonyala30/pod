@@ -1,120 +1,129 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { Insight, DependencyGraph } from '../types';
+import type { Insight, DependencyGraph, Pod, AgentActivity } from '../types';
 
 interface WSMessage {
   type: string;
   data?: any;
   graph?: any;
+  pods?: any[];
+  agent_activity?: any;
+  demo_mode?: boolean;
 }
 
 /**
- * WebSocket hook with auto-reconnect and heartbeat support.
- *
- * SRS compliance:
- * - Connects to /ws/live (SRS §9) with /ws fallback
- * - Exponential backoff reconnection (1s → 2s → 4s → ... → 30s max)
- * - Responds to server PING with PONG (VULN-03 heartbeat protocol)
- * - Tracks connection status for UI display
+ * WebSocket hook — auto-reconnect, heartbeat, handles all message types:
+ *   NEW_INSIGHT  → insight + graph + agent_activity
+ *   PODS_UPDATE  → live pod metrics (every 5s)
+ *   PING         → heartbeat, responds with PONG
  */
 export function useWebSocket(
   onNewInsight: (insight: Insight) => void,
-  onNewGraph: (graph: DependencyGraph) => void
+  onNewGraph: (graph: DependencyGraph) => void,
+  onPodsUpdate: (pods: Pod[]) => void,
+  onAgentActivity: (activity: AgentActivity) => void,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [lastMessageAt, setLastMessageAt] = useState<Date | null>(null);
 
-  // Stable refs for callbacks (avoid reconnecting on every render)
+  // Stable refs so we don't recreate the connection on every render
   const onInsightRef = useRef(onNewInsight);
   const onGraphRef = useRef(onNewGraph);
+  const onPodsRef = useRef(onPodsUpdate);
+  const onAgentRef = useRef(onAgentActivity);
   onInsightRef.current = onNewInsight;
   onGraphRef.current = onNewGraph;
+  onPodsRef.current = onPodsUpdate;
+  onAgentRef.current = onAgentActivity;
 
   const connect = useCallback(() => {
-    // Clear any pending reconnect timer
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
     }
-
-    // Close existing connection if any
     if (wsRef.current) {
       try { wsRef.current.close(); } catch { /* ignore */ }
     }
 
-    const wsUrl = `ws://localhost:8000/ws/live`;
-    const ws = new WebSocket(wsUrl);
+    const wsUrl = 'ws://localhost:8000/ws/live';
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      console.error('[WS] Failed to create WebSocket:', e);
+      scheduleReconnect();
+      return;
+    }
 
     ws.onopen = () => {
       console.log('[WS] Connected to', wsUrl);
       setIsConnected(true);
-      reconnectAttempt.current = 0; // Reset backoff on successful connection
+      reconnectAttempt.current = 0;
     };
 
     ws.onmessage = (event) => {
       try {
         const msg: WSMessage = JSON.parse(event.data);
+        setLastMessageAt(new Date());
 
-        // VULN-03: Respond to server heartbeat PING with PONG
+        // Heartbeat
         if (msg.type === 'PING') {
           ws.send(JSON.stringify({ type: 'PONG' }));
           return;
         }
 
+        // Full AI analysis result
         if (msg.type === 'NEW_INSIGHT') {
-          if (msg.data) onInsightRef.current(msg.data);
-          if (msg.graph) onGraphRef.current(msg.graph);
+          if (msg.data)           onInsightRef.current(msg.data);
+          if (msg.graph)          onGraphRef.current(msg.graph);
+          if (msg.agent_activity) onAgentRef.current(msg.agent_activity);
         }
+
+        // Fast pod metrics snapshot (every 5s)
+        if (msg.type === 'PODS_UPDATE') {
+          if (msg.pods?.length)   onPodsRef.current(msg.pods);
+          if (msg.demo_mode !== undefined) setIsDemoMode(msg.demo_mode);
+        }
+
       } catch (err) {
-        console.error('[WS] Failed to parse message', err);
+        console.error('[WS] Parse error:', err);
       }
     };
 
     ws.onclose = (event) => {
-      console.log('[WS] Disconnected. Code:', event.code, 'Reason:', event.reason);
+      console.log('[WS] Disconnected. Code:', event.code);
       setIsConnected(false);
       wsRef.current = null;
-
-      // Don't reconnect if closed intentionally (code 1000 with reason)
-      if (event.code === 1000 && event.reason === 'Component unmounted') {
-        return;
-      }
-
-      // Exponential backoff reconnect: 1s, 2s, 4s, 8s, 16s, 30s max
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000);
-      reconnectAttempt.current++;
-      console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempt.current})`);
-
-      reconnectTimer.current = setTimeout(() => {
-        connect();
-      }, delay);
+      if (event.code === 1000 && event.reason === 'Component unmounted') return;
+      scheduleReconnect();
     };
 
-    ws.onerror = (err) => {
-      console.error('[WS] Error:', err);
-      // onclose will handle reconnection
+    ws.onerror = () => {
+      // onclose will handle reconnect
     };
 
     wsRef.current = ws;
   }, []);
 
+  const scheduleReconnect = () => {
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000);
+    reconnectAttempt.current++;
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempt.current})`);
+    reconnectTimer.current = setTimeout(() => connect(), delay);
+  };
+
   useEffect(() => {
     connect();
-
     return () => {
-      // Cleanup on unmount
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-      }
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
-        // Close with reason so we don't auto-reconnect
-        try {
-          wsRef.current.close(1000, 'Component unmounted');
-        } catch { /* ignore */ }
+        try { wsRef.current.close(1000, 'Component unmounted'); } catch { /* ignore */ }
       }
     };
   }, [connect]);
 
-  return { isConnected };
+  return { isConnected, isDemoMode, lastMessageAt };
 }

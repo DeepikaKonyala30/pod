@@ -76,9 +76,10 @@ class RuleEngine:
             ))
             recommendations.append(Recommendation(
                 pod=t.pod, namespace=t.namespace,
-                action=f"kubectl patch deployment -n {t.namespace} <deploy> -p "
-                       f"'{{\"spec\":{{\"template\":{{\"spec\":{{\"containers\":[{{\"name\":\"main\","
-                       f"\"resources\":{{\"limits\":{{\"cpu\":\"1000m\"}}}}}}]}}}}}}}}}'",
+                action=(
+                    f"kubectl patch deployment -n {t.namespace} <deploy> "
+                    "--type='merge' -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"main\",\"resources\":{\"limits\":{\"cpu\":\"1000m\"}}}]}}}}'"
+                ),
                 priority="immediate" if severity == Severity.CRITICAL else "short-term",
                 rationale=f"Throttle at {t.throttle_pct:.1f}% causes response latency spikes",
             ))
